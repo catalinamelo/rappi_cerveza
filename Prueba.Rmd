@@ -12,8 +12,6 @@ Try executing this chunk by clicking the *Run* button within the chunk or by pla
 Se inicia con el cargue del archivo csv
 
 ```{r Cargue de archivo}
-library("dplyr")
-library("ggplot2")
 
 bbdd <- read.csv("D:/calificaciones_cervezas/beer_reviews.csv")
 
@@ -21,40 +19,28 @@ bbdd <- read.csv("D:/calificaciones_cervezas/beer_reviews.csv")
 
 Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
 
-Para resolver la primera pregunta debemos generar una estadistica de cada cerveza en donde se registre la informacion basica de la cerveza ( que cerveceria la produce, que tipo de cerveza , grados de alcohol ) y se calculen ciertas estadisticas de las observaciones asociadas a la calificacion total y la calificacion en cada criterio.
-```{r}
+Para resolver la primera pregunta debemos generar una estadistica para cada cerveceria en donde me capture la informacion del maximo grado de alcohol que reportan las cervezas asociadas a esa cerveceria. 
 
-tabla_cervezas <- distinct(bbdd, id_cerveceria, nombre_cerveceria, tipo_cerveza, nombre_cerveza )
-
-stats_cervezas <- group_by( bbdd, nombre_cerveza) %>% summarise(grados_alcohol = median(grado_alcohol, na.rm = TRUE), calificacion_prom = mean(calificacion_total, na.rm = TRUE), sabor_prom = mean(calificacion_sabor, na.rm = TRUE), aroma_prom = mean(calificacion_aroma, na.rm = TRUE), paleta_prom = mean(calificacion_paleta, na.rm = TRUE), apariencia_prom = mean(calificacion_apariencia, na.rm = TRUE))%>% left_join( tabla_cervezas, by = "nombre_cerveza")
-
-
-```
-
-Teniendo la informacion de cada cerveza debemos consolidar la informacion de cada cerveceria ( nombre y id ) y calcular las estadisticas asociadas a sus productos y los grados de alchol ( promedio , cuartil 1, mediana y cuartil 3)
- 
+  - Es definir dentro de la funcion que los registros que no son validos ( vacios o NA ) deberan ser omitidos para poder identificar el maximo grado de alcohol.
+  
+  - La tabla resultante deberia omitir las observaciones o cerverias que no contaban con ninguna registro valido para el calculo del maximo grado del alcohol , dado que estos la funcion calcularia como valor infinito.
+  
+  - Finalmente se debera ordenar la tabla en orden descendente para garantizar que  los primeros registros que aparecen son las cervercerias que registran los mayores valores en el campo maximo_alchol
 ```{r Punto 1 : Cerveceria que produce en promedio las cervezas con mayor grado de alcohol}
 
+library("dplyr")
 tabla_cervecerias <- distinct(bbdd, id_cerveceria, nombre_cerveceria)
+tabla_cervezas <- distinct(bbdd, id_cerveceria, nombre_cerveceria, tipo_cerveza, nombre_cerveza )
 
-stats_cervecerias <- group_by(stats_cervezas, id_cerveceria) %>% summarise(  prom_alcohol = mean(grados_alcohol , na.rm = TRUE), Q1 = quantile(grados_alcohol, prob = 0.25 , na.rm=TRUE), Q2 = quantile(grados_alcohol, prob = 0.5 , na.rm=TRUE), Q3 = quantile(grados_alcohol, prob = 0.75 , na.rm=TRUE) ) %>% filter(!is.infinite(prom_alcohol))%>% arrange(desc(Q3))%>% left_join( tabla_cervecerias, by = "id_cerveceria")
+stats_cervezas <- group_by( bbdd, nombre_cerveza) %>% summarise(grados_alcohol = median(grado_alcohol, na.rm = TRUE), sabor_prom = mean(calificacion_sabor, na.rm = TRUE), aroma_prom = mean(calificacion_aroma, na.rm = TRUE), paleta_prom = mean(calificacion_paleta, na.rm = TRUE), apariencia_prom = mean(calificacion_apariencia, na.rm = TRUE))%>% left_join( tabla_cervezas, by = "nombre_cerveza")
 
-top5_cervecerias <- top_n(stats_cervecerias,5,prom_alcohol )
-
-head(top5_cervecerias, n =5)
+stats_cervecerias <- group_by(bbdd, id_cerveceria) %>% summarise( promedio_alcohol = mean(grado_alcohol , na.rm = TRUE)) %>% filter(!is.infinite(promedio_alcohol))%>% arrange(desc(promedio_alcohol))%>% left_join( tabla_cervecerias, by = "id_cerveceria")
 
 head(stats_cervecerias, n =1)
 
 ```
-Para poder compartir esta información al equipo de marketing podriamos construir un boxplot para las primeras 5 obseraciones de la tabla. Esto nos va a permitir mostrar graficamente las distribucion en cuanto a grados de alcohol que presentan las cervezas de estas cervecerias.
-
-```{r}
 
 El codigo anterior me permite calcular el promedio de grados de alcohol que presentan los productos de cada cerveceria y visualizar la cerveceria que registra  el mayor promedio , en este caso :
-top5_detalle_cervezas <- semi_join(stats_cervezas, top5_cervecerias , by = "id_cerveceria") %>% filter(!is.na(grados_alcohol))
 
-top5_cajas <- ggplot(top5_detalle_cervezas, aes(nombre_cerveceria, grados_alcohol)) + geom_boxplot()+ coord_flip()
-
-top5_cajas
-```
-
+                        "Schorschbräu" con 19.22 
+                        
