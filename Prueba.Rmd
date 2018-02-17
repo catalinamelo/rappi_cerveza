@@ -12,35 +12,79 @@ Try executing this chunk by clicking the *Run* button within the chunk or by pla
 Se inicia con el cargue del archivo csv
 
 ```{r Cargue de archivo}
+library("dplyr")
+library("ggplot2")
 
 bbdd <- read.csv("D:/calificaciones_cervezas/beer_reviews.csv")
 
 ```
 
 Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+...............................................................................................................
+                                              PRIMER PUNTO
+...............................................................................................................
 
-Para resolver la primera pregunta debemos generar una estadistica para cada cerveceria en donde me capture la informacion del maximo grado de alcohol que reportan las cervezas asociadas a esa cerveceria. 
 
-  - Es definir dentro de la funcion que los registros que no son validos ( vacios o NA ) deberan ser omitidos para poder identificar el maximo grado de alcohol.
-  
-  - La tabla resultante deberia omitir las observaciones o cerverias que no contaban con ninguna registro valido para el calculo del maximo grado del alcohol , dado que estos la funcion calcularia como valor infinito.
-  
-  - Finalmente se debera ordenar la tabla en orden descendente para garantizar que  los primeros registros que aparecen son las cervercerias que registran los mayores valores en el campo maximo_alchol
+Para resolver la primera pregunta debemos generar una estadistica de cada cerveza en donde se registre la informacion basica de la cerveza ( que cerveceria la produce, que tipo de cerveza , grados de alcohol ) y se calculen los grados de alcohol de la cerveza. 
+En teoria una cerveza no deberia presentar observaciones con diferentes grados de alcohol ( esto no deberia cambiar) pero podria ser que en algunas observaciones no se haya informado correctamente los grados o se presenten errores de digitacion, para evitar esto utilizaremos moda para capturar los grados de alcohol de cada cerveza , este estadistico me capturara el valor de grados de alcohol que se reporte con mayor frecuencia en cada cerveza suponiendo que en la mayoria de los casos se reporte correctamente los grados de alcohol, esto me permitira disminuir errores derivados de una mala digitación.
+
+```{r}
+library("modeest")
+
+tabla_cervezas <- distinct(bbdd, id_cerveceria, nombre_cerveceria, tipo_cerveza, nombre_cerveza, id_cerveza )
+
+stats_cervezas <- group_by( bbdd, id_cerveza) %>% summarise(grados_alcohol = median(grado_alcohol, na.rm = TRUE))%>% left_join( tabla_cervezas, by = "id_cerveza")
+
+```
+
+Teniendo la informacion de cada cerveza debemos consolidar la informacion de cada cerveceria ( nombre y id ) y calcular las estadisticas asociadas a sus productos y los grados de alchol ( promedio , cuartil 1, mediana y cuartil 3)
+ 
 ```{r Punto 1 : Cerveceria que produce en promedio las cervezas con mayor grado de alcohol}
 
-library("dplyr")
 tabla_cervecerias <- distinct(bbdd, id_cerveceria, nombre_cerveceria)
-tabla_cervezas <- distinct(bbdd, id_cerveceria, nombre_cerveceria, tipo_cerveza, nombre_cerveza )
 
-stats_cervezas <- group_by( bbdd, nombre_cerveza) %>% summarise(grados_alcohol = median(grado_alcohol, na.rm = TRUE), sabor_prom = mean(calificacion_sabor, na.rm = TRUE), aroma_prom = mean(calificacion_aroma, na.rm = TRUE), paleta_prom = mean(calificacion_paleta, na.rm = TRUE), apariencia_prom = mean(calificacion_apariencia, na.rm = TRUE))%>% left_join( tabla_cervezas, by = "nombre_cerveza")
+stats_cervecerias <- group_by(stats_cervezas, id_cerveceria) %>% summarise(  prom_alcohol = mean(grados_alcohol , na.rm = TRUE), Q1 = quantile(grados_alcohol, prob = 0.25 , na.rm=TRUE), Q2 = quantile(grados_alcohol, prob = 0.5 , na.rm=TRUE), Q3 = quantile(grados_alcohol, prob = 0.75 , na.rm=TRUE) ) %>% filter(!is.infinite(prom_alcohol))%>% arrange(desc(Q3))%>% left_join( tabla_cervecerias, by = "id_cerveceria")
 
-stats_cervecerias <- group_by(bbdd, id_cerveceria) %>% summarise( promedio_alcohol = mean(grado_alcohol , na.rm = TRUE)) %>% filter(!is.infinite(promedio_alcohol))%>% arrange(desc(promedio_alcohol))%>% left_join( tabla_cervecerias, by = "id_cerveceria")
+top5_cervecerias <- top_n(stats_cervecerias,5,prom_alcohol )
+
+head(top5_cervecerias, n =5)
 
 head(stats_cervecerias, n =1)
 
 ```
 
-El codigo anterior me permite calcular el promedio de grados de alcohol que presentan los productos de cada cerveceria y visualizar la cerveceria que registra  el mayor promedio , en este caso :
+Para poder compartir esta información al equipo de marketing podriamos construir un boxplot para las primeras 5 obseraciones de la tabla. Esto nos va a permitir mostrar graficamente las distribucion en cuanto a grados de alcohol que presentan las cervezas de estas cervecerias.
 
-                        "Schorschbräu" con 19.22 
-                        
+```{r}
+
+top5_detalle_cervezas <- semi_join(stats_cervezas, top5_cervecerias , by = "id_cerveceria") %>% filter(!is.na(grados_alcohol))
+
+top5_cajas <- ggplot(top5_detalle_cervezas, aes(nombre_cerveceria, grados_alcohol)) + geom_boxplot()+ coord_flip()
+
+top5_cajas
+```
+
+
+...............................................................................................................
+                                              SEGUNDO PUNTO
+...............................................................................................................
+
+La idea es recomendar las cervezas que tengan la mejor puntuacion por diferentes usuarios. 
+Para esto debemos debemos iniciar construyendo una tabla con la calificacion promedio que cada usuario le ha asignado a cada cerveza para que cada usuario represente una unico registro de calificacion independientemente del numero de veces que ha calificado la misma cerveza.
+
+```{r}
+
+tabla_calificaciones_usuarios<- distinct(bbdd, usuario, nombre_cerveza ,id_cerveza)%>% mutate(id_calificacion = paste(usuario,c(id_cerveza), sep ="-"))
+
+stats_calificacion_usuario <- mutate(bbdd, id_calificacion =paste(usuario, c(id_cerveza), sep ="-"))%>% group_by( id_calificacion) %>% summarise( calificacion_prom_u = mean(calificacion_total, na.rm = TRUE), calificacion_med_u = median(calificacion_total, na.rm = TRUE), calificacion_desv_u = sd(calificacion_total, na.rm = TRUE), sabor_prom_u = mean(calificacion_sabor, na.rm = TRUE), aroma_prom_u = mean(calificacion_aroma, na.rm = TRUE), paleta_prom_u = mean(calificacion_paleta, na.rm = TRUE), apariencia_prom_u = mean(calificacion_apariencia, na.rm = TRUE))%>% left_join( tabla_calificaciones_usuarios, by = "id_calificacion")
+stats_calificacion_usuario
+
+calificaciones_cervezas <- group_by(stats_calificacion_usuario, id_cerveza) %>% summarise( n=n(),calificacion_prom = mean(calificacion_prom_u, na.rm = TRUE), calificacion_med = median(calificacion_prom_u, na.rm = TRUE), calificacion_desv = sd(calificacion_desv_u, na.rm = TRUE), sabor_prom = mean(sabor_prom_u, na.rm = TRUE), aroma_prom = mean(aroma_prom_u, na.rm = TRUE), paleta_prom = mean(paleta_prom_u, na.rm = TRUE), apariencia_prom = mean(apariencia_prom_u, na.rm = TRUE)) %>% left_join(stats_cervezas, by = "id_cerveza") %>% filter(n >=10) %>% arrange( desc(calificacion_prom), calificacion_desv, desc(n))
+
+calificaciones_cervezas
+
+
+is.finite(calificacion_desv)
+```
+
+ 
