@@ -74,17 +74,52 @@ Para esto debemos debemos iniciar construyendo una tabla con la calificacion pro
 
 ```{r}
 
-tabla_calificaciones_usuarios<- distinct(bbdd, usuario, nombre_cerveza ,id_cerveza)%>% mutate(id_calificacion = paste(usuario,c(id_cerveza), sep ="-"))
+# Distinct: generarmos una que incluya todas las combinaciones de usuarios y cervezas calificadas
+# Mutate : me aryuda a asignarle a  cada combinacion de usuario y cerveza calificada un unico ID
 
-stats_calificacion_usuario <- mutate(bbdd, id_calificacion =paste(usuario, c(id_cerveza), sep ="-"))%>% group_by( id_calificacion) %>% summarise( calificacion_prom_u = mean(calificacion_total, na.rm = TRUE), calificacion_med_u = median(calificacion_total, na.rm = TRUE), calificacion_desv_u = sd(calificacion_total, na.rm = TRUE), sabor_prom_u = mean(calificacion_sabor, na.rm = TRUE), aroma_prom_u = mean(calificacion_aroma, na.rm = TRUE), paleta_prom_u = mean(calificacion_paleta, na.rm = TRUE), apariencia_prom_u = mean(calificacion_apariencia, na.rm = TRUE))%>% left_join( tabla_calificaciones_usuarios, by = "id_calificacion")
-stats_calificacion_usuario
+tabla_calificaciones_cervezas_usuarios<- distinct(bbdd, usuario, nombre_cerveza ,id_cerveza)%>% mutate(id_calificacion = paste(usuario,c(id_cerveza), sep ="-"))
 
-calificaciones_cervezas <- group_by(stats_calificacion_usuario, id_cerveza) %>% summarise( n=n(),calificacion_prom = mean(calificacion_prom_u, na.rm = TRUE), calificacion_med = median(calificacion_prom_u, na.rm = TRUE), calificacion_desv = sd(calificacion_desv_u, na.rm = TRUE), sabor_prom = mean(sabor_prom_u, na.rm = TRUE), aroma_prom = mean(aroma_prom_u, na.rm = TRUE), paleta_prom = mean(paleta_prom_u, na.rm = TRUE), apariencia_prom = mean(apariencia_prom_u, na.rm = TRUE)) %>% left_join(stats_cervezas, by = "id_cerveza") %>% filter(n >=10) %>% arrange( desc(calificacion_prom), calificacion_desv, desc(n))
+# Mutate: me aryuda a generar en la base de datos un ID unico para cada combinacion de usuario y cerveza calificada
+# group_by y summarise: calculan las estadisticas de cada combinacion de usuario y cerveza calificada en funcion de la calificaciones de los usuarios
+# left_join : me permite incoporar a la tabla de estadisticas la informacion del nombre del nombre de la cerveza y id de la cerveza
 
-calificaciones_cervezas
+
+stats_calificacion_usuario <- mutate(bbdd, id_calificacion =paste(usuario, c(id_cerveza), sep ="-"))%>% group_by( id_calificacion) %>% summarise( calificacion_prom_u = mean(calificacion_total, na.rm = TRUE), calificacion_med_u = median(calificacion_total, na.rm = TRUE), calificacion_desv_u = sd(calificacion_total, na.rm = TRUE), sabor_prom_u = mean(calificacion_sabor, na.rm = TRUE), aroma_prom_u = mean(calificacion_aroma, na.rm = TRUE), paleta_prom_u = mean(calificacion_paleta, na.rm = TRUE), apariencia_prom_u = mean(calificacion_apariencia, na.rm = TRUE))%>% left_join( tabla_calificaciones_cervezas_usuarios, by = "id_calificacion")
 
 
-is.finite(calificacion_desv)
+```
+Con la informacion de la calificacion que cada usuario ha asignado en promedio a cada cerveza procedemos a calcular las estadisticas para cada producto ( estadisticas sobre el numero de observaciones o calificaciones recibidas por usuarios diferentes, la calificacion total y la calificacion que en promedio a recibido los items de sabor , aroma , paleta y apariencia). 
+
+La idea es recomendar las cervezas que tengan la mejor calificacion promedio , con la menor variabilidad posible (para poder garantizar que en el peor de los escenarios la calificacion que le otorguen nuevos usuario no se aleje demasiado del promedio) y un numero razonable de observaciones ( se excluyen cervezas que no tengan con por lo menos 30 calificaciones).
+
+Para combinar todos estos elementos el ranking de cervezas se puede calcular el limite inferior que tendria la calificacion de cada cerveza ( esto nos permite incorporar en la evaluacion : la calificacion promedio , la desviacion estandar , el numero de observaciones y un nivel de confianza de aproximadamente el 95%). 
+
+```{r}
+#El cuantil lo utilizaremos para calcular el limite inferior y superior de la calificacion.
+
+cuantil<- qnorm(1 - 0.05/2)
+
+# group_by y summarise: calculan las estadisticas de cada cerveza en funcion de la calificaciones de los usuarios
+# left_join : me permite incoporar a la tabla de estadisticas la informacion del nombre de la cerveza para facilitar la interpretacion de los resultados
+# filter : me ayuda a eliminar las desviaciones estandar con valores infinitos y no calculados y cervezas con menos de 30 observaciones
+#mutate me ayuda a calcular el limite inferior y superior que puede tener la calificacion de cada cerveza
+
+calificaciones_cervezas <- group_by(stats_calificacion_usuario, id_cerveza) %>% summarise( n=n()-sum(is.na(calificacion_prom_u)),calificacion_prom = mean(calificacion_prom_u, na.rm = TRUE), calificacion_med = median(calificacion_prom_u, na.rm = TRUE), calificacion_desv = sd(calificacion_prom_u, na.rm = TRUE), sabor_prom = mean(sabor_prom_u, na.rm = TRUE), aroma_prom = mean(aroma_prom_u, na.rm = TRUE), paleta_prom = mean(paleta_prom_u, na.rm = TRUE), apariencia_prom = mean(apariencia_prom_u, na.rm = TRUE))%>% left_join(stats_cervezas, by = "id_cerveza")%>% filter((is.finite(calificacion_desv)| is.nan(calificacion_desv)) & n>30) %>% mutate(limINF_calificacion = calificacion_prom - (cuantil*calificacion_desv / sqrt(n) ), limSUP_calificacion = calificacion_prom + (cuantil*calificacion_desv / sqrt(n) )) %>% arrange( desc(limINF_calificacion), desc(calificacion_prom) , limSUP_calificacion , calificacion_desv, desc(n))
+
+#Mostramos el TOP3 de cervezas con mayor limite inferior
+
+head(select(calificaciones_cervezas, nombre_cerveza, id_cerveza, n , limINF_calificacion, calificacion_prom, limSUP_calificacion, calificacion_desv),n=3)
+
 ```
 
- 
+Al momento de presentar los resultados al equipo de Marketing podemos explicar que para la seleccion de las cervezas hemos utilizar un indicador que nos permita incluir los siguientes aspectos (los que estan en parentesis no van dirigidos al equipo de MKT) :
+
+    1. Favorecer cervezas que tengan calificaciones promedio altas ( esto se logra porque el limite inferior se          calcula en funcion de la media ).
+    2. Castigar cervezas cuyas calificaciones presenten mucha variabilidad y poca consistencia, es decir                calificaciones muy buenas pero a su vez calificaciones muy bajas ( esto se logra porque la desviacion con        aleja el limite inferior del promedio castigando cervezas que presenten mucha variabilidad ).
+    3. Favorecer cervezas que hayan sido calificadas por un numero importante de personas ( esto se logra porque        el numero de calificaciones tiene la capacidad dismiuir el efecto que tiene sobre el limite inferior, una        alta variabilidad en muestras grandes )
+
+Estos tres criterios mencionados han sido incorporados en un indicador que representaria el peor escenario para la calificacion y hemos optado por seleccionar las cervezas que aun en el peor escenario tendiran las mejores calificaciones, en este caso:
+
+         1.  Rare D.O.S. (63649) - 4,76
+         2.  Dirty Horse (44910) - 4,73
+         3.  Southampton Berliner Weisse (8626) - 4,67
