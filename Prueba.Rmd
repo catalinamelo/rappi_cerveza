@@ -95,7 +95,7 @@ tabla_calificaciones_cervezas_usuarios<- distinct(bbdd, usuario, nombre_cerveza 
 
 stats_calificacion_usuario <- mutate(bbdd, id_calificacion =paste(usuario, c(id_cerveza), sep ="-"))%>% group_by( id_calificacion) %>% summarise( calificacion_prom_u = mean(calificacion_total, na.rm = TRUE), calificacion_med_u = median(calificacion_total, na.rm = TRUE), calificacion_desv_u = sd(calificacion_total, na.rm = TRUE), sabor_prom_u = mean(calificacion_sabor, na.rm = TRUE), aroma_prom_u = mean(calificacion_aroma, na.rm = TRUE), paleta_prom_u = mean(calificacion_paleta, na.rm = TRUE), apariencia_prom_u = mean(calificacion_apariencia, na.rm = TRUE))%>% left_join( tabla_calificaciones_cervezas_usuarios, by = "id_calificacion")
 
-
+stats_calificacion_usuario
 ```
 Con la informacion de la calificacion que cada usuario ha asignado en promedio a cada cerveza procedemos a calcular las estadisticas para cada producto ( estadisticas sobre el numero de observaciones o calificaciones recibidas por usuarios diferentes, la calificacion total y la calificacion que en promedio a recibido los items de sabor , aroma , paleta y apariencia). 
 
@@ -143,7 +143,7 @@ Estos tres criterios mencionados han sido incorporados en un indicador que repre
 ```{r}
  library("FactoMineR")
 library("factoextra")
-library("ggcorrplot)
+library("ggcorrplot")
 
 ```
 
@@ -157,14 +157,14 @@ library("ggcorrplot)
 
 ```{r}
 #Generamos una tabla con los aspectos a analizar ( calificaciones )
- base_pca <-  filter( bbdd, !is.na(calificacion_aroma) & !is.na(calificacion_apariencia) & !is.na(calificacion_paleta) & !is.na(calificacion_sabor) & !is.na(calificacion_total)) %>% select(calificacion_aroma, calificacion_apariencia, calificacion_paleta , calificacion_sabor, calificacion_total)
+ base_pca <-  filter( bbdd, !is.na(calificacion_aroma) & !is.na(calificacion_apariencia) & !is.na(calificacion_paleta) & !is.na(calificacion_sabor) & !is.na(calificacion_total)) %>% select(calificacion_aroma, calificacion_apariencia, calificacion_paleta , calificacion_sabor, calificacion_total, tipo_cerveza)
 base_pca
 
 ```
 
 ```{r}
 #calculamos las correlaciones en las variables para validar que estas no esten correlacionadas entre si
-correlaciones <- round(cor(select(base_pca, -calificacion_total)),2)
+correlaciones <- round(cor(select(base_pca, -calificacion_total,-tipo_cerveza)),2)
 
 #este codigo me permite prepresentar graficamente la matriz de correlaciones.  
 ggcorrplot(correlaciones, hc.order = TRUE, type = "lower",lab = TRUE, insig= "blank",colors = c("#7f0000", "white", "#205e82"))
@@ -178,7 +178,7 @@ Dado que la desviacion estandar y la media de estas variables puede ser diferent
 ```{r}
 #calculo para componentes principales , en donde la columna 5 es la variable que buscamos explicar en funcion de los componentes principales.
 
-pca <- PCA( base_pca, scale.unit = TRUE, ncp = 3, quanti.sup = 5, graph = FALSE) 
+pca <- PCA( base_pca, scale.unit = TRUE, ncp = 3, quanti.sup = 5,quali.sup= 6,  graph = FALSE) 
 
 #visualizar el porcentaje de varianza que es explicado por las componentes
 pca$eig 
@@ -198,11 +198,59 @@ para el segundo componente se resalta que la mayor aportacion es generada por ap
 
 ```{r}
 
-fviz_pca_var(pca, col.var = "contrib",
-             gradient.cols = c("#ffd0c7", "#ff7259", "#8b3626")
-             )
+fviz_pca_var(pca, col.var = "contrib",gradient.cols = c("#ffd0c7", "#ff7259", "#8b3626"), repel = TRUE, arrowsize = 1 , labelsize = 5)
+
 ```
 
 De acuerdo con esta grafica las variables que contribuyen más a explicar la variabilidad en la calidad de una cerveza o su calificación total son la apariencia y el sabor (teniendo mayor contribucion la apariencia).
+
+```{r}
+
+pca_cervezas <- get_pca_ind(pca)
+
+fviz_pca_ind(pca, geom.ind = "point")
+```
+
+```{r}
+
+```
+
+         
+...............................................................................................................
+                                              CUARTO PUNTO
+...............................................................................................................
+
+
+```{r}
+
+
+# Distinct: generarmos una tabla que incluya todas las combinaciones cervezas y tipos de cerveza dejando un unico registro por combinacion identificada
+tabla_tipos_y_cervezas <- distinct(bbdd, tipo_cerveza, nombre_cerveza, id_cerveza )
+
+
+#El cuantil lo utilizaremos para calcular el limite inferior y superior de la calificacion.
+
+cuantil<- qnorm(1 - 0.05/2)
+
+# Select : Vamos a partir de la tabla "stats_calificacion_usuario" que se construyo en el segundo punto para calcular las calificaciones promedio que cada tipo de cerveza ha recibido ( cada observacion utilizada para el promedio corresponde a una combinacion de usuario y cerveza ) adicionalmente nos vamos a concentrar unicamente en las variables de aroma y apariencia.
+# Mutate: vamos a crear un nuevo campo en las estadisticas de usuario que me promedie la calificacion promedio que el usuario le dio a los items de aroma y apariencia.
+# Left_join : vamos a unir la tabla de calificaciones con la tabla de tipos y cervezas para recuparar la informacion asociada al tipo de cerveza que calificó cada usuario.
+# group_by y summarise: calculan las estadisticas de promedio y desviacion para el campo que promedia el aroma y la apariencia.
+# filter : me ayuda a eliminar las desviaciones estandar con valores infinitos y no calculados y cervezas con menos de 5 observaciones
+#mutate me ayuda a calcular el limite inferior para la calificacion de aroma y apariencia.
+# Arrange : me ordena la tabla en orden descendente en funcion del limite inferior.
+
+stats_calificacion_tipo_cerveza <- select(stats_calificacion_usuario, nombre_cerveza, id_cerveza, aroma_prom_u, paleta_prom_u ) %>% mutate(aroma_y_apariencia = (aroma_prom_u +paleta_prom_u)/2) %>% left_join( tabla_tipos_y_cervezas, by = c("id_cerveza")) %>% group_by(tipo_cerveza) %>% summarise( n=n()-sum(is.na(aroma_y_apariencia)), aroma_y_apariencia_prom = mean(aroma_y_apariencia, na.rm = TRUE), aroma_y_apariencia_desv= sd(aroma_y_apariencia, na.rm = TRUE)) %>% filter((is.finite(aroma_y_apariencia_desv)| is.nan(aroma_y_apariencia_desv)) & n>5) %>% mutate( limINF_aroma_apariencia = aroma_y_apariencia_prom - (cuantil*aroma_y_apariencia_desv / sqrt(n) )) %>% arrange( desc(limINF_aroma_apariencia), desc(aroma_y_apariencia_prom))
+
+top10_tipos_aroma_apariencia <- top_n(stats_calificacion_tipo_cerveza, n=10, limINF_aroma_apariencia)
+top10_tipos_aroma_apariencia
+```
+
+Al igual que en el punto 2 se deberia recomendar a este tipo de usuarios es la cerveza :
+
+    1. American Double / Imperial Stout . 
+
+Porque es la cerveza que presenta que presenta la mejor calificacion de aroma y apariencia considerando factores como el promedio , el numero de calificaciones recibidas o observaciones y la variabilidad de las mismas.
+
 
 
