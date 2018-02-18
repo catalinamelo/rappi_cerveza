@@ -252,5 +252,36 @@ Al igual que en el punto 2 se deberia recomendar a este tipo de usuarios es la c
 
 Porque es la cerveza que presenta que presenta la mejor calificacion de aroma y apariencia considerando factores como el promedio , el numero de calificaciones recibidas o observaciones y la variabilidad de las mismas.
 
+         
+...............................................................................................................
+                                              QUINTO PUNTO
+...............................................................................................................
 
+```{r}
+
+library("lpSolve")
+library("tibble")
+peso_sabor <- 0.25
+peso_aroma <- 0.25
+peso_paleta <- 0.25
+peso_apariencia <- 0.25
+
+calificaciones_ponderadas <- as.vector(calificaciones_cervezas$sabor_prom * peso_sabor + calificaciones_cervezas$paleta_prom * peso_aroma + calificaciones_cervezas$paleta_prom * peso_paleta + calificaciones_cervezas$apariencia_prom * peso_apariencia )
+restricciones = c(1,1)
+signos = c(">=","<=")
+matriz_restricciones = matrix(1, 2, length(f.obj))
+
+
+opti <- lp("max", calificaciones_ponderadas, matriz_restricciones , signos, restricciones, all.bin = TRUE)
+indice_resultado <- 0
+i = 1
+while(indice_resultado <= 0 | i > length(f.obj) )
+{
+   temp <- opti$solution[1]
+   if( temp >= 1){ indice_resultado <- i}
+   else{ i + 1}
+}
+
+print(paste("Dados los pesos ingresados, se recomienda la cerveza : ", calificaciones_cervezas$nombre_cerveza[i]))
+```
 
