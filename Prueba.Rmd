@@ -12,6 +12,7 @@ Try executing this chunk by clicking the *Run* button within the chunk or by pla
 Se inicia con el cargue del archivo csv
 
 ```{r Cargue de archivo}
+
 library("dplyr")
 library("ggplot2")
 
@@ -31,7 +32,11 @@ En teoria una cerveza no deberia presentar observaciones con diferentes grados d
 ```{r}
 library("modeest")
 
+# Distinct: generarmos una que incluya todas las combinaciones cervezas, tipos y cervecerias dejando un unico registro por combinacion identificada
 tabla_cervezas <- distinct(bbdd, id_cerveceria, nombre_cerveceria, tipo_cerveza, nombre_cerveza, id_cerveza )
+
+# group_by y summarise: calculan la mediana del campo grado_alcohol para cada ID de cerveza
+# left_join : me permite incoporar a la tabla de estadisticas la informacion del nombre nombre de la cerveceria, id de la cerveria y nombre de la cerveza 
 
 stats_cervezas <- group_by( bbdd, id_cerveza) %>% summarise(grados_alcohol = median(grado_alcohol, na.rm = TRUE))%>% left_join( tabla_cervezas, by = "id_cerveza")
 
@@ -41,15 +46,20 @@ Teniendo la informacion de cada cerveza debemos consolidar la informacion de cad
  
 ```{r Punto 1 : Cerveceria que produce en promedio las cervezas con mayor grado de alcohol}
 
+# Distinct: generarmos una que incluya todas las combinaciones id_cerveria y nombre_cerveria, dejando un unico registro por combinacion.
+
 tabla_cervecerias <- distinct(bbdd, id_cerveceria, nombre_cerveceria)
+
+# group_by y summarise: calculan las estadisticas de promedio , cuartil 1, cuartil 2 y cuartil 3 en funcion del campo grados de alcohol para cada ID de cerveza
+# Filter : eliminamos los registros de cervecerias para los cuales no se pudo calcular el promedio de grados de alcohol
+# Arrange : organizamos la tabla en funcion en orden descendente y en funcion del campo cuartil 3.
+#left_join : me permite incoporar a la tabla de estadisticas la informacion del nombre de la cerveceria.
 
 stats_cervecerias <- group_by(stats_cervezas, id_cerveceria) %>% summarise(  prom_alcohol = mean(grados_alcohol , na.rm = TRUE), Q1 = quantile(grados_alcohol, prob = 0.25 , na.rm=TRUE), Q2 = quantile(grados_alcohol, prob = 0.5 , na.rm=TRUE), Q3 = quantile(grados_alcohol, prob = 0.75 , na.rm=TRUE) ) %>% filter(!is.infinite(prom_alcohol))%>% arrange(desc(Q3))%>% left_join( tabla_cervecerias, by = "id_cerveceria")
 
+
+#Creamos una tabla que me capture las primeras 5 observaciones.
 top5_cervecerias <- top_n(stats_cervecerias,5,prom_alcohol )
-
-head(top5_cervecerias, n =5)
-
-head(stats_cervecerias, n =1)
 
 ```
 
@@ -82,7 +92,6 @@ tabla_calificaciones_cervezas_usuarios<- distinct(bbdd, usuario, nombre_cerveza 
 # Mutate: me aryuda a generar en la base de datos un ID unico para cada combinacion de usuario y cerveza calificada
 # group_by y summarise: calculan las estadisticas de cada combinacion de usuario y cerveza calificada en funcion de la calificaciones de los usuarios
 # left_join : me permite incoporar a la tabla de estadisticas la informacion del nombre del nombre de la cerveza y id de la cerveza
-
 
 stats_calificacion_usuario <- mutate(bbdd, id_calificacion =paste(usuario, c(id_cerveza), sep ="-"))%>% group_by( id_calificacion) %>% summarise( calificacion_prom_u = mean(calificacion_total, na.rm = TRUE), calificacion_med_u = median(calificacion_total, na.rm = TRUE), calificacion_desv_u = sd(calificacion_total, na.rm = TRUE), sabor_prom_u = mean(calificacion_sabor, na.rm = TRUE), aroma_prom_u = mean(calificacion_aroma, na.rm = TRUE), paleta_prom_u = mean(calificacion_paleta, na.rm = TRUE), apariencia_prom_u = mean(calificacion_apariencia, na.rm = TRUE))%>% left_join( tabla_calificaciones_cervezas_usuarios, by = "id_calificacion")
 
@@ -118,8 +127,82 @@ Al momento de presentar los resultados al equipo de Marketing podemos explicar q
     2. Castigar cervezas cuyas calificaciones presenten mucha variabilidad y poca consistencia, es decir                calificaciones muy buenas pero a su vez calificaciones muy bajas ( esto se logra porque la desviacion con        aleja el limite inferior del promedio castigando cervezas que presenten mucha variabilidad ).
     3. Favorecer cervezas que hayan sido calificadas por un numero importante de personas ( esto se logra porque        el numero de calificaciones tiene la capacidad dismiuir el efecto que tiene sobre el limite inferior, una        alta variabilidad en muestras grandes )
 
-Estos tres criterios mencionados han sido incorporados en un indicador que representaria el peor escenario para la calificacion y hemos optado por seleccionar las cervezas que aun en el peor escenario tendiran las mejores calificaciones, en este caso:
+Estos tres criterios mencionados han sido incorporados en un indicador que representaria el peor escenario para la calificacion y hemos optado por seleccionar las cervezas que aun en el peor escenario tendrian las mejores calificaciones, en este caso:
 
          1.  Rare D.O.S. (63649) - 4,76
          2.  Dirty Horse (44910) - 4,73
          3.  Southampton Berliner Weisse (8626) - 4,67
+         
+...............................................................................................................
+                                              TERCER PUNTO
+...............................................................................................................
+
+
+
+
+```{r}
+ library("FactoMineR")
+library("factoextra")
+library("ggcorrplot)
+
+```
+
+
+
+```{r}
+
+```
+
+
+
+```{r}
+#Generamos una tabla con los aspectos a analizar ( calificaciones )
+ base_pca <-  filter( bbdd, !is.na(calificacion_aroma) & !is.na(calificacion_apariencia) & !is.na(calificacion_paleta) & !is.na(calificacion_sabor) & !is.na(calificacion_total)) %>% select(calificacion_aroma, calificacion_apariencia, calificacion_paleta , calificacion_sabor, calificacion_total)
+base_pca
+
+```
+
+```{r}
+#calculamos las correlaciones en las variables para validar que estas no esten correlacionadas entre si
+correlaciones <- round(cor(select(base_pca, -calificacion_total)),2)
+
+#este codigo me permite prepresentar graficamente la matriz de correlaciones.  
+ggcorrplot(correlaciones, hc.order = TRUE, type = "lower",lab = TRUE, insig= "blank",colors = c("#7f0000", "white", "#205e82"))
+
+```
+
+De acuerdo con la matriz anterior existe una alta correlacion entre las diferentes calificaciones que podrian determinar la calidad de la cerveza ( por ejemplo entre aroma y sabor hay una correlacion de 0.72 y entre paleta y sabor 0.73) por este motivo se requiere la realizacion de un analisis de componentes principales para determinar que variables contribuyen en mayor medida a explicar la variabilidad que presenta la calificacion total. 
+
+Dado que la desviacion estandar y la media de estas variables puede ser diferente debemos normalizarlas antes de llevar a cabo el analisis. 
+
+```{r}
+#calculo para componentes principales , en donde la columna 5 es la variable que buscamos explicar en funcion de los componentes principales.
+
+pca <- PCA( base_pca, scale.unit = TRUE, ncp = 3, quanti.sup = 5, graph = FALSE) 
+
+#visualizar el porcentaje de varianza que es explicado por las componentes
+pca$eig 
+
+```
+Al validar los 4 componentes se puede validar que el primer componente explica cerca del 72% de la variabilidad , el segundo componente 12,6 %. 
+ 
+```{r}
+var <- get_pca_var(pca)
+var$cor
+
+```
+
+en la tabla anterior podemos ver que el primer componente las variables que mas aportan son sabor, paleta y aroma. Esto implicaria que valores elevados de este componente corresponden a cervezas que han obtenido buenas calificaciones en los mismos. 
+para el segundo componente se resalta que la mayor aportacion es generada por apariencia y el resto variables presentan signos negativos , lo que nos llevaria a asumir que valores elevados en esta segunda componente corresponden a cervezas que tienen una calificacion muy alta en terminos de apariencia pero baja en sabor , aroma y paleta.
+
+
+```{r}
+
+fviz_pca_var(pca, col.var = "contrib",
+             gradient.cols = c("#ffd0c7", "#ff7259", "#8b3626")
+             )
+```
+
+De acuerdo con esta grafica las variables que contribuyen más a explicar la variabilidad en la calidad de una cerveza o su calificación total son la apariencia y el sabor (teniendo mayor contribucion la apariencia).
+
+
