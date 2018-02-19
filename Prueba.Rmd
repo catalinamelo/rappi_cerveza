@@ -113,7 +113,7 @@ cuantil<- qnorm(1 - 0.05/2)
 # filter : me ayuda a eliminar las desviaciones estandar con valores infinitos y no calculados y cervezas con menos de 30 observaciones
 #mutate me ayuda a calcular el limite inferior y superior que puede tener la calificacion de cada cerveza
 
-calificaciones_cervezas <- group_by(stats_calificacion_usuario, id_cerveza) %>% summarise( n=n()-sum(is.na(calificacion_prom_u)),calificacion_prom = mean(calificacion_prom_u, na.rm = TRUE), calificacion_med = median(calificacion_prom_u, na.rm = TRUE), calificacion_desv = sd(calificacion_prom_u, na.rm = TRUE), sabor_prom = mean(sabor_prom_u, na.rm = TRUE), aroma_prom = mean(aroma_prom_u, na.rm = TRUE), paleta_prom = mean(paleta_prom_u, na.rm = TRUE), apariencia_prom = mean(apariencia_prom_u, na.rm = TRUE))%>% left_join(stats_cervezas, by = "id_cerveza")%>% filter((is.finite(calificacion_desv)| is.nan(calificacion_desv)) & n>30) %>% mutate(limINF_calificacion = calificacion_prom - (cuantil*calificacion_desv / sqrt(n) ), limSUP_calificacion = calificacion_prom + (cuantil*calificacion_desv / sqrt(n) )) %>% arrange( desc(limINF_calificacion), desc(calificacion_prom) , limSUP_calificacion , calificacion_desv, desc(n))
+calificaciones_cervezas <- group_by(stats_calificacion_usuario, id_cerveza) %>% summarise( n=n()-sum(is.na(calificacion_prom_u)),calificacion_prom = mean(calificacion_prom_u, na.rm = TRUE), calificacion_med = median(calificacion_prom_u, na.rm = TRUE), calificacion_desv = sd(calificacion_prom_u, na.rm = TRUE), sabor_prom = mean(sabor_prom_u, na.rm = TRUE), aroma_prom = mean(aroma_prom_u, na.rm = TRUE), paleta_prom = mean(paleta_prom_u, na.rm = TRUE), apariencia_prom = mean(apariencia_prom_u, na.rm = TRUE))%>% left_join(stats_cervezas, by = "id_cerveza")%>% filter((is.finite(calificacion_desv)| is.nan(calificacion_desv)) ) %>% mutate(limINF_calificacion = calificacion_prom - (cuantil*calificacion_desv / sqrt(n) ), limSUP_calificacion = calificacion_prom + (cuantil*calificacion_desv / sqrt(n) )) %>% arrange( desc(limINF_calificacion), desc(calificacion_prom) , limSUP_calificacion , calificacion_desv, desc(n))
 
 #Mostramos el TOP3 de cervezas con mayor limite inferior
 
@@ -206,9 +206,6 @@ De acuerdo con esta grafica las variables que contribuyen más a explicar la var
 
 ```{r}
 
-pca_cervezas <- get_pca_ind(pca)
-
-fviz_pca_ind(pca, geom.ind = "point")
 ```
 
 ```{r}
@@ -257,31 +254,125 @@ Porque es la cerveza que presenta que presenta la mejor calificacion de aroma y 
                                               QUINTO PUNTO
 ...............................................................................................................
 
+Para la realizacion del ultimo punto comenzaremos definiendo una funcion que recibe 4 parametros que representan el peso o importancia que tiene el sabor, el aroma , la paleta y la apariencia de una cerveza.
+
+         1. Ningun parametro tener un peso superior al 100%
+         2. Ningun parametro puede tener un peso negativo.
+         3. Los cuatro parametros en conjunto deben representar el 100%.
+
+Validados los tres casos la función lleva ejecuta un modelo de optimizacion lineal que busca recomendarle al cliente una cerveza que logre maximizar su experiencia en funcion de los items que más valor respresentan para el usuario ( pesos de las caracterizticas) y las calificaciones que en promedio se han registrado para cada tipo de cerveza.
+ 
+En este modelo la funcion objetivo sera maximizar la calificacion ponderada de las cervezas 
+   FO :  sumatoria ( i en Cervezas , k en criterios) Peso (k) * Calificacion_promedio (k , i) * X(i)
+
+-Peso(k) representa el peso que otorga el usuario al criterio "k"( aroma, sabor , paleta y apariencia)
+-Calificacion_promedio(k ,i) representa la calificacion promedio que tiene el criterio "k" en la cerveza "i"
+-X(i) representa una variable binaria que toma el valor de 1 si se recomienda la cereza "i" y 0 dlc.
+
+Sujeto a las siguientes restricciones 
+
+         1. Se tiene que seleccionar 1 unica cerveza lo cual se modelara a partir de dos restricciones
+                      sumatoria(i)  X(i) > = 1    y   sumatoria(i)  X(i) <= 1
+
+
 ```{r}
 
-library("lpSolve")
-library("tibble")
-peso_sabor <- 0.25
-peso_aroma <- 0.25
-peso_paleta <- 0.25
-peso_apariencia <- 0.25
-
-calificaciones_ponderadas <- as.vector(calificaciones_cervezas$sabor_prom * peso_sabor + calificaciones_cervezas$paleta_prom * peso_aroma + calificaciones_cervezas$paleta_prom * peso_paleta + calificaciones_cervezas$apariencia_prom * peso_apariencia )
-restricciones = c(1,1)
-signos = c(">=","<=")
-matriz_restricciones = matrix(1, 2, length(f.obj))
-
-
-opti <- lp("max", calificaciones_ponderadas, matriz_restricciones , signos, restricciones, all.bin = TRUE)
-indice_resultado <- 0
-i = 1
-while(indice_resultado <= 0 | i > length(f.obj) )
+recomendar_cerveza <- function(sabor,aroma, paleta , apariencia)
 {
-   temp <- opti$solution[1]
-   if( temp >= 1){ indice_resultado <- i}
-   else{ i + 1}
+  #Asignamos cada parametro recibido por la funcion a variables locales
+  peso_sabor <- sabor
+  peso_aroma <- aroma
+  peso_paleta <- paleta
+  peso_apariencia <- apariencia
+  
+  #Validamos que los parametros recibidos por la funcion sean adecuados.
+  
+  if( peso_sabor > 1 | peso_aroma > 1 | peso_paleta >1 | peso_apariencia> 1)
+    { return("No pueden definirse pesos superiores a uno . PESO(i) <= 1")}
+    
+  else-if( peso_sabor < 0 | peso_aroma < 0 | peso_paleta < 0 | peso_apariencia < 0)
+    { return("No pueden definirse pesos negativos , PESO(i) >= 0")} 
+   
+  else-if( peso_sabor + peso_aroma + peso_paleta + peso_apariencia > 1| peso_sabor + peso_aroma + peso_paleta + peso_apariencia < 1)
+   { return("La suma de los pesos no puede ser superior/inferior a 1, sum (PESO(i)) == 1")} 
+  
+  else
+  {
+      library("lpSolve")
+    
+      #definimos el vector con los costos de la funcion objetivo
+      calificaciones_ponderadas <- as.vector(calificaciones_cervezas$sabor_prom * peso_sabor +  calificaciones_cervezas$paleta_prom * peso_aroma + calificaciones_cervezas$paleta_prom * peso_paleta + calificaciones_cervezas$apariencia_prom * peso_apariencia )
+       
+      #definimos el vector que contiene los valores del lado derecho de las restricciones   
+      restricciones = c(1,1)
+      #definimos el vector que indica que signos tienen las restricciones
+      signos = c(">=","<=")
+      #Definimos una matriz de unos con una dimension de 2 x numero cervezas , 
+      matriz_restricciones = matrix(1, 2, length(calificaciones_ponderadas))
+      
+      #corremos el modelo de optimizacion indicando los parametros requeridos e indicando 
+      #que en el modelo todas las variables seran binarias.
+      opti <- lp("max", calificaciones_ponderadas, matriz_restricciones , signos, restricciones, all.bin = TRUE)
+     
+       return(opti)
+    }
 }
 
-print(paste("Dados los pesos ingresados, se recomienda la cerveza : ", calificaciones_cervezas$nombre_cerveza[i]))
+```
+
+Definimos una funcion que me permita identificar la cerveza que es seleccionada por el modelo de optimizacion para poder informar el nombre de la misma. 
+
+Esta funcion recibe como parametro el vector con todas las variables del modelo de optimizacion y la funcion se encargara de recorrer el vector hasta que logre identificar la variable que fue seleccionada por el modelo ( aquella que tenga valor == 1)
+Cuando logra identificar que variable es la seleccionada, utilizará el indice de la variable para buscar su nombre en la tabla calificaciones_cervezas.
+
+```{r}
+
+identificar_cerveza <- function(vector_variables)
+{
+  #asignamos el vector a una variable local
+  variables <- vector_variables
+  #inicializamos el contador para iniciar el loop
+  i <- 0
+  cerveza <- "No identificado"
+ 
+   while(i <= length(variables)  )
+  {
+    i <- i + 1
+    temp <- variables[i]
+    if(temp >= 1 ){ break } #si logra identificar la variable con valor == 1, termina el loop 
+  }
+  if( i >= 1 & i <= length(variables) ){cerveza <- calificaciones_cervezas$nombre_cerveza[i]}
+  return(cerveza)
+}
+
+```
+`
+En la siguiente linea se deben definir los valores que se pasaran al modelo para recomendar una cerveza y se llamara a la funcion "recomendar_cerveza"
+
+```{r}
+#se definen los pesos para cada criterio
+aroma <- 0.0
+sabor <- 0.0
+paleta <- 0.0
+apariencia <- 1
+
+# se llama a la funcion recomendar_Cerveza informando los pesos 
+resultado_opti <- recomendar_cerveza( aroma, sabor, paleta, apariencia)
+
+# se imprime el resultado de la funcion objetivo
+resultado_opti$objval
+
+```
+Dado que ya se tiene un resultado para la funcion objetivo, se debe identificar cual fue la cerveza seleccionada por el modelo para poder informar al usuario. Para esto se llamara a la funcion "identificar_cereza" y se le entregara como parametro el vector con todas las variables solucion del modelo.
+
+```{r}
+
+variables <- resultado_opti$solution
+
+#se llama a la funcion identificar_Cerveza
+resultado_cerveza <- identificar_cerveza(variables)
+
+#se imprime el nombre de la cerveza seleccionada
+print(paste("Se recomienda la cerveza : ", resultado_cerveza))
 ```
 
